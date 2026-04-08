@@ -1,14 +1,36 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
+import UploadZone from '@/components/UploadZone'
+import StyleSelector from '@/components/StyleSelector'
+import ImageCompare from '@/components/ImageCompare'
+import LoadingSpinner from '@/components/LoadingSpinner'
 
-const STYLES = [
-  { id: 'pencil', label: 'Pencil Sketch', emoji: '✏️', prompt: 'convert to detailed pencil sketch drawing, black and white, hand-drawn style' },
-  { id: 'inkwash', label: 'Ink Wash', emoji: '🖌️', prompt: 'convert to ink wash painting style, artistic brush strokes, monochrome' },
-  { id: 'lineart', label: 'Line Art', emoji: '🖊️', prompt: 'convert to clean line art illustration, minimal lines, outline style' },
+export const STYLES = [
+  {
+    id: 'pencil',
+    label: 'Pencil Sketch',
+    labelCn: '铅笔素描',
+    emoji: '✏️',
+    prompt: 'Convert this photo to a detailed pencil sketch drawing, black and white, hand-drawn artistic style, fine line details',
+  },
+  {
+    id: 'inkwash',
+    label: 'Ink Wash',
+    labelCn: '水墨画',
+    emoji: '🖌️',
+    prompt: 'Convert this photo to an ink wash painting style, artistic brush strokes, monochrome, traditional painting aesthetic',
+  },
+  {
+    id: 'lineart',
+    label: 'Line Art',
+    labelCn: '线稿',
+    emoji: '🖊️',
+    prompt: 'Convert this photo to clean line art illustration, minimal crisp lines, outline drawing style, vector art look',
+  },
 ]
 
-type Status = 'idle' | 'uploading' | 'processing' | 'done' | 'error' | 'limit'
+type Status = 'idle' | 'processing' | 'done' | 'error' | 'limit'
 
 export default function Home() {
   const [status, setStatus] = useState<Status>('idle')
@@ -17,31 +39,31 @@ export default function Home() {
   const [resultImage, setResultImage] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
   const [remainingUses, setRemainingUses] = useState<number | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 10 * 1024 * 1024) {
-      alert('Image must be under 10MB')
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = () => setOriginalImage(reader.result as string)
-    reader.readAsDataURL(file)
-  }
+  const handleFileSelect = useCallback((dataUrl: string) => {
+    setOriginalImage(dataUrl)
+    setResultImage(null)
+    setStatus('idle')
+    setErrorMsg('')
+  }, [])
 
   const handleConvert = async () => {
     if (!originalImage) return
     setStatus('processing')
     setResultImage(null)
+    setErrorMsg('')
 
     try {
-      const style = STYLES.find(s => s.id === selectedStyle)!
+      const style = STYLES.find((s) => s.id === selectedStyle)!
+
       const res = await fetch('/api/convert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: originalImage, prompt: style.prompt }),
+        body: JSON.stringify({
+          image: originalImage,
+          prompt: style.prompt,
+          style: style.id,
+        }),
       })
 
       const data = await res.json()
@@ -51,7 +73,7 @@ export default function Home() {
         return
       }
       if (!res.ok) {
-        setErrorMsg(data.error || 'Conversion failed')
+        setErrorMsg(data.error || 'Conversion failed, please try again')
         setStatus('error')
         return
       }
@@ -60,17 +82,28 @@ export default function Home() {
       setRemainingUses(data.remaining)
       setStatus('done')
     } catch {
-      setErrorMsg('Network error, please try again')
+      setErrorMsg('Network error, please check your connection and try again')
       setStatus('error')
     }
   }
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!resultImage) return
-    const a = document.createElement('a')
-    a.href = resultImage
-    a.download = 'drawing.png'
-    a.click()
+    try {
+      const response = await fetch(resultImage)
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `drawing-${selectedStyle}-${Date.now()}.png`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      // Fallback: open in new tab
+      window.open(resultImage, '_blank')
+    }
   }
 
   const handleReset = () => {
@@ -78,135 +111,159 @@ export default function Home() {
     setOriginalImage(null)
     setResultImage(null)
     setErrorMsg('')
-    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
+  const isProcessing = status === 'processing'
+  const canConvert = !!originalImage && !isProcessing
+
   return (
-    <main className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 p-6">
-      <div className="max-w-3xl mx-auto">
+    <main className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50">
+      <div className="max-w-4xl mx-auto px-4 py-10">
+
         {/* Header */}
-        <div className="text-center mb-10">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">🎨 Picture to Drawing</h1>
-          <p className="text-gray-500 text-lg">Upload your photo, AI turns it into hand-drawn art</p>
+        <header className="text-center mb-12">
+          <h1 className="text-5xl font-bold text-gray-800 mb-3 tracking-tight">
+            🎨 Picture to Drawing
+          </h1>
+          <p className="text-gray-500 text-xl">
+            Upload your photo · Choose a style · Get hand-drawn art
+          </p>
           {remainingUses !== null && (
-            <p className="text-sm text-orange-500 mt-1">
-              {remainingUses} free conversions remaining today
-            </p>
+            <div className="mt-3 inline-block bg-orange-100 text-orange-600 text-sm font-medium px-4 py-1.5 rounded-full">
+              🎁 {remainingUses} free conversion{remainingUses !== 1 ? 's' : ''} remaining today
+            </div>
+          )}
+        </header>
+
+        {/* Main Card */}
+        <div className="bg-white rounded-3xl shadow-xl shadow-orange-100/50 p-8 space-y-8">
+
+          {/* Step 1: Upload */}
+          <section>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-7 h-7 bg-orange-500 text-white text-sm font-bold rounded-full flex items-center justify-center">1</span>
+              <h2 className="text-lg font-semibold text-gray-700">Upload Your Photo</h2>
+            </div>
+            <UploadZone
+              onFileSelect={handleFileSelect}
+              currentImage={originalImage}
+              disabled={isProcessing}
+            />
+          </section>
+
+          {/* Step 2: Style (shown after upload) */}
+          {originalImage && (
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <span className="w-7 h-7 bg-orange-500 text-white text-sm font-bold rounded-full flex items-center justify-center">2</span>
+                <h2 className="text-lg font-semibold text-gray-700">Choose Drawing Style</h2>
+              </div>
+              <StyleSelector
+                styles={STYLES}
+                selected={selectedStyle}
+                onChange={setSelectedStyle}
+                disabled={isProcessing}
+              />
+            </section>
+          )}
+
+          {/* Step 3: Convert Button */}
+          {originalImage && (
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <span className="w-7 h-7 bg-orange-500 text-white text-sm font-bold rounded-full flex items-center justify-center">3</span>
+                <h2 className="text-lg font-semibold text-gray-700">Convert</h2>
+              </div>
+
+              {/* Status Messages */}
+              {status === 'processing' && (
+                <div className="flex items-center justify-center gap-3 py-6 bg-orange-50 rounded-2xl mb-4">
+                  <LoadingSpinner />
+                  <div>
+                    <p className="font-medium text-orange-700">AI is drawing your image...</p>
+                    <p className="text-sm text-orange-500">This usually takes 15–40 seconds</p>
+                  </div>
+                </div>
+              )}
+
+              {status === 'error' && (
+                <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-2xl mb-4">
+                  <span className="text-red-500 text-xl">⚠️</span>
+                  <div>
+                    <p className="font-medium text-red-700">Something went wrong</p>
+                    <p className="text-sm text-red-600 mt-0.5">{errorMsg}</p>
+                  </div>
+                </div>
+              )}
+
+              {status === 'limit' && (
+                <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl mb-4">
+                  <span className="text-2xl">🚫</span>
+                  <div>
+                    <p className="font-medium text-amber-800">Daily free limit reached</p>
+                    <p className="text-sm text-amber-700 mt-0.5">You&apos;ve used all 3 free conversions today. Come back tomorrow!</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 flex-wrap">
+                {(status === 'idle' || status === 'error') && (
+                  <button
+                    onClick={handleConvert}
+                    disabled={!canConvert}
+                    className="flex-1 min-w-[160px] bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 disabled:cursor-not-allowed text-white font-semibold py-3.5 px-6 rounded-xl transition-all duration-200 shadow-sm hover:shadow-md"
+                  >
+                    ✨ Start Converting
+                  </button>
+                )}
+
+                {status === 'done' && (
+                  <>
+                    <button
+                      onClick={handleDownload}
+                      className="flex-1 min-w-[160px] bg-green-500 hover:bg-green-600 text-white font-semibold py-3.5 px-6 rounded-xl transition-all duration-200 shadow-sm hover:shadow-md"
+                    >
+                      ⬇️ Download Drawing
+                    </button>
+                    <button
+                      onClick={handleConvert}
+                      className="flex-1 min-w-[160px] bg-orange-100 hover:bg-orange-200 text-orange-700 font-semibold py-3.5 px-6 rounded-xl transition-all duration-200"
+                    >
+                      🔄 Try Another Style
+                    </button>
+                  </>
+                )}
+
+                {originalImage && status !== 'processing' && (
+                  <button
+                    onClick={handleReset}
+                    className="px-6 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-medium rounded-xl transition-all duration-200"
+                  >
+                    📷 New Photo
+                  </button>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* Result */}
+          {(originalImage || resultImage) && (
+            <section>
+              <ImageCompare
+                originalImage={originalImage}
+                resultImage={resultImage}
+                isLoading={isProcessing}
+              />
+            </section>
           )}
         </div>
 
-        {/* Upload Area */}
-        {!originalImage ? (
-          <div
-            className="border-2 border-dashed border-orange-300 rounded-2xl p-16 text-center cursor-pointer hover:border-orange-500 hover:bg-orange-50 transition-all"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <div className="text-5xl mb-4">📷</div>
-            <p className="text-gray-600 text-lg">Click or drag to upload a photo</p>
-            <p className="text-gray-400 text-sm mt-2">JPG / PNG, up to 10MB</p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* Style Selector */}
-            <div>
-              <p className="text-gray-700 font-medium mb-3">Choose drawing style:</p>
-              <div className="grid grid-cols-3 gap-3">
-                {STYLES.map(style => (
-                  <button
-                    key={style.id}
-                    onClick={() => setSelectedStyle(style.id)}
-                    className={`p-4 rounded-xl border-2 text-center transition-all ${
-                      selectedStyle === style.id
-                        ? 'border-orange-500 bg-orange-50'
-                        : 'border-gray-200 hover:border-orange-300'
-                    }`}
-                  >
-                    <div className="text-3xl mb-1">{style.emoji}</div>
-                    <div className="text-sm font-medium text-gray-700">{style.label}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Image Preview / Result */}
-            <div className={`grid gap-4 ${resultImage ? 'grid-cols-2' : 'grid-cols-1'}`}>
-              <div>
-                <p className="text-xs text-gray-400 mb-1 text-center">Original</p>
-                <img src={originalImage} alt="original" className="w-full rounded-xl object-contain max-h-72" />
-              </div>
-              {resultImage && (
-                <div>
-                  <p className="text-xs text-gray-400 mb-1 text-center">Drawing</p>
-                  <img src={resultImage} alt="result" className="w-full rounded-xl object-contain max-h-72" />
-                </div>
-              )}
-            </div>
-
-            {/* Status Messages */}
-            {status === 'processing' && (
-              <div className="text-center py-4">
-                <div className="text-2xl animate-spin inline-block">⚙️</div>
-                <p className="text-gray-600 mt-2">AI is drawing... please wait 15-40 seconds</p>
-              </div>
-            )}
-            {status === 'error' && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
-                <p className="text-red-600">{errorMsg}</p>
-              </div>
-            )}
-            {status === 'limit' && (
-              <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-center">
-                <p className="text-orange-600">🚫 Daily free limit reached. Come back tomorrow!</p>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex gap-3">
-              {(status === 'idle' || status === 'error') && (
-                <button
-                  onClick={handleConvert}
-                  className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 rounded-xl transition-all"
-                >
-                  ✨ Start Converting
-                </button>
-              )}
-              {status === 'done' && (
-                <>
-                  <button
-                    onClick={handleDownload}
-                    className="flex-1 bg-green-500 hover:bg-green-600 text-white font-semibold py-3 rounded-xl transition-all"
-                  >
-                    ⬇️ Download Drawing
-                  </button>
-                  <button
-                    onClick={handleConvert}
-                    className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 rounded-xl transition-all"
-                  >
-                    🔄 Try Again
-                  </button>
-                </>
-              )}
-              <button
-                onClick={handleReset}
-                className="px-6 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold py-3 rounded-xl transition-all"
-              >
-                New Photo
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Footer */}
-        <div className="text-center mt-12 text-gray-400 text-sm">
-          <p>© 2026 Picture to Drawing · 3 free conversions per day</p>
-        </div>
+        <footer className="text-center mt-10 text-gray-400 text-sm space-y-1">
+          <p>© 2026 Picture to Drawing · Powered by Replicate AI</p>
+          <p>3 free conversions per day · No account required</p>
+        </footer>
       </div>
     </main>
   )

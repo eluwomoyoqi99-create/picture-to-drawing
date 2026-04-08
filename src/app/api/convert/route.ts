@@ -2,16 +2,45 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN
 const DAILY_LIMIT = 3
+const POLL_INTERVAL_MS = 2000
+const MAX_POLL_ATTEMPTS = 30 // 60 seconds max
 
-// Simple in-memory rate limiter (use Cloudflare KV in production)
+// In-memory rate limiter (use Cloudflare KV in production)
 const usageMap = new Map<string, { count: number; date: string }>()
 
-function getToday() {
+function getToday(): string {
   return new Date().toISOString().split('T')[0]
 }
 
-function getClientIP(req: NextRequest) {
-  return req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown'
+function getClientIP(req: NextRequest): string {
+  return (
+    req.headers.get('cf-connecting-ip') ||
+    req.headers.get('x-real-ip') ||
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    '127.0.0.1'
+  )
+}
+
+function getRemainingUses(ip: string): number {
+  const today = getToday()
+  const usage = usageMap.get(ip)
+  if (!usage || usage.date !== today) return DAILY_LIMIT
+  return Math.max(0, DAILY_LIMIT - usage.count)
+}
+
+function incrementUsage(ip: string): number {
+  const today = getToday()
+  const usage = usageMap.get(ip)
+  if (!usage || usage.date !== today) {
+    usageMap.set(ip, { count: 1, date: today })
+    return DAILY_LIMIT - 1
+  }
+  usage.count++
+  return Math.max(0, DAILY_LIMIT - usage.count)
+}
+
+async function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms))
 }
 
 export async function POST(req: NextRequest) {
@@ -21,74 +50,133 @@ export async function POST(req: NextRequest) {
   // Check rate limit
   const usage = usageMap.get(ip)
   if (usage && usage.date === today && usage.count >= DAILY_LIMIT) {
-    return NextResponse.json({ error: 'Daily limit reached' }, { status: 429 })
+    return NextResponse.json(
+      { error: 'Daily limit reached', remaining: 0 },
+      { status: 429 }
+    )
   }
 
-  const { image, prompt } = await req.json()
-
-  if (!image || !prompt) {
-    return NextResponse.json({ error: 'Missing image or prompt' }, { status: 400 })
-  }
-
+  // Validate API token
   if (!REPLICATE_API_TOKEN) {
-    return NextResponse.json({ error: 'API token not configured' }, { status: 500 })
+    return NextResponse.json(
+      { error: 'Server configuration error: missing API token' },
+      { status: 500 }
+    )
+  }
+
+  // Parse request body
+  let image: string
+  let prompt: string
+  try {
+    const body = await req.json()
+    image = body.image
+    prompt = body.prompt
+    if (!image || !prompt) throw new Error('Missing fields')
+  } catch {
+    return NextResponse.json(
+      { error: 'Invalid request: image and prompt are required' },
+      { status: 400 }
+    )
+  }
+
+  // Validate image format
+  if (!image.startsWith('data:image/')) {
+    return NextResponse.json(
+      { error: 'Invalid image format' },
+      { status: 400 }
+    )
   }
 
   try {
-    // Start prediction
-    const startRes = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-max/predictions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${REPLICATE_API_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        input: {
-          prompt: prompt,
-          input_image: image,
+    // Start Replicate prediction
+    const startRes = await fetch(
+      'https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-max/predictions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
+          'Content-Type': 'application/json',
+          Prefer: 'wait', // wait up to 60s for sync response
         },
-      }),
-    })
+        body: JSON.stringify({
+          input: {
+            prompt: prompt,
+            input_image: image,
+            output_format: 'png',
+            safety_tolerance: 2,
+          },
+        }),
+      }
+    )
 
     if (!startRes.ok) {
-      const err = await startRes.text()
-      return NextResponse.json({ error: `Replicate error: ${err}` }, { status: 500 })
+      const errText = await startRes.text()
+      console.error('Replicate API error:', errText)
+      return NextResponse.json(
+        { error: 'AI service error, please try again later' },
+        { status: 502 }
+      )
     }
 
-    const prediction = await startRes.json()
+    let prediction = await startRes.json()
 
-    // Poll for result (max 60s)
-    let result = prediction
-    const maxAttempts = 30
-    for (let i = 0; i < maxAttempts; i++) {
-      if (result.status === 'succeeded') break
-      if (result.status === 'failed' || result.status === 'canceled') {
-        return NextResponse.json({ error: 'Processing failed' }, { status: 500 })
-      }
-      await new Promise(r => setTimeout(r, 2000))
-      const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${result.id}`, {
-        headers: { 'Authorization': `Bearer ${REPLICATE_API_TOKEN}` },
-      })
-      result = await pollRes.json()
+    // If not done yet, poll for result
+    let attempts = 0
+    while (
+      prediction.status !== 'succeeded' &&
+      prediction.status !== 'failed' &&
+      prediction.status !== 'canceled' &&
+      attempts < MAX_POLL_ATTEMPTS
+    ) {
+      await sleep(POLL_INTERVAL_MS)
+      attempts++
+
+      const pollRes = await fetch(
+        `https://api.replicate.com/v1/predictions/${prediction.id}`,
+        {
+          headers: { Authorization: `Bearer ${REPLICATE_API_TOKEN}` },
+        }
+      )
+      if (!pollRes.ok) break
+      prediction = await pollRes.json()
     }
 
-    if (result.status !== 'succeeded') {
-      return NextResponse.json({ error: 'Timeout waiting for result' }, { status: 500 })
+    // Check final status
+    if (prediction.status === 'failed' || prediction.status === 'canceled') {
+      return NextResponse.json(
+        { error: prediction.error || 'Processing failed' },
+        { status: 500 }
+      )
     }
 
-    // Update usage count
-    const currentUsage = usageMap.get(ip)
-    if (!currentUsage || currentUsage.date !== today) {
-      usageMap.set(ip, { count: 1, date: today })
-    } else {
-      currentUsage.count++
+    if (prediction.status !== 'succeeded') {
+      return NextResponse.json(
+        { error: 'Processing timed out, please try again' },
+        { status: 504 }
+      )
     }
 
-    const remaining = DAILY_LIMIT - (usageMap.get(ip)?.count || 0)
-    const output = Array.isArray(result.output) ? result.output[0] : result.output
+    // Extract output URL
+    const output = Array.isArray(prediction.output)
+      ? prediction.output[0]
+      : prediction.output
 
+    if (!output) {
+      return NextResponse.json(
+        { error: 'No output received from AI' },
+        { status: 500 }
+      )
+    }
+
+    // Increment usage and return success
+    const remaining = incrementUsage(ip)
     return NextResponse.json({ output, remaining })
-  } catch (error) {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+
+  } catch (err) {
+    console.error('Unexpected error:', err)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }
