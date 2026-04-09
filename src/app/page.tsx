@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import UploadZone from '@/components/UploadZone'
 import StyleSelector from '@/components/StyleSelector'
 import ImageCompare from '@/components/ImageCompare'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import { STYLES } from '@/lib/styles'
+import { processImage, StyleId } from '@/lib/imageProcessing'
 
 type Status = 'idle' | 'processing' | 'done' | 'error' | 'limit'
 
@@ -31,35 +32,34 @@ export default function Home() {
     setErrorMsg('')
 
     try {
-      const style = STYLES.find((s) => s.id === selectedStyle)!
-
+      // 1. Check rate limit via API (lightweight, no native deps)
       const res = await fetch('/api/convert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image: originalImage,
-          prompt: style.prompt,
-          style: style.id,
-        }),
+        body: JSON.stringify({ style: selectedStyle }),
       })
-
-      const data = await res.json()
 
       if (res.status === 429) {
         setStatus('limit')
         return
       }
+
+      const data = await res.json()
       if (!res.ok) {
-        setErrorMsg(data.error || 'Conversion failed, please try again')
+        setErrorMsg(data.error || 'Request failed')
         setStatus('error')
         return
       }
 
-      setResultImage(data.output)
+      // 2. Process image in the browser (Canvas API — zero server dependency)
+      const output = await processImage(originalImage, selectedStyle as StyleId)
+
+      setResultImage(output)
       setRemainingUses(data.remaining)
       setStatus('done')
-    } catch {
-      setErrorMsg('Network error, please check your connection and try again')
+    } catch (e) {
+      console.error(e)
+      setErrorMsg('Processing failed, please try again')
       setStatus('error')
     }
   }
@@ -67,18 +67,13 @@ export default function Home() {
   const handleDownload = async () => {
     if (!resultImage) return
     try {
-      const response = await fetch(resultImage)
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = url
+      a.href = resultImage
       a.download = `drawing-${selectedStyle}-${Date.now()}.png`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
-      URL.revokeObjectURL(url)
     } catch {
-      // Fallback: open in new tab
       window.open(resultImage, '_blank')
     }
   }
@@ -128,7 +123,7 @@ export default function Home() {
             />
           </section>
 
-          {/* Step 2: Style (shown after upload) */}
+          {/* Step 2: Style */}
           {originalImage && (
             <section>
               <div className="flex items-center gap-2 mb-4">
@@ -144,7 +139,7 @@ export default function Home() {
             </section>
           )}
 
-          {/* Step 3: Convert Button */}
+          {/* Step 3: Convert */}
           {originalImage && (
             <section>
               <div className="flex items-center gap-2 mb-4">
@@ -152,13 +147,12 @@ export default function Home() {
                 <h2 className="text-lg font-semibold text-gray-700">Convert</h2>
               </div>
 
-              {/* Status Messages */}
               {status === 'processing' && (
                 <div className="flex items-center justify-center gap-3 py-6 bg-orange-50 rounded-2xl mb-4">
                   <LoadingSpinner />
                   <div>
-                    <p className="font-medium text-orange-700">AI is drawing your image...</p>
-                    <p className="text-sm text-orange-500">This usually takes 15–40 seconds</p>
+                    <p className="font-medium text-orange-700">Processing your image...</p>
+                    <p className="text-sm text-orange-500">Running in your browser, usually a few seconds</p>
                   </div>
                 </div>
               )}
@@ -183,7 +177,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Action Buttons */}
               <div className="flex gap-3 flex-wrap">
                 {(status === 'idle' || status === 'error') && (
                   <button
@@ -238,8 +231,8 @@ export default function Home() {
 
         {/* Footer */}
         <footer className="text-center mt-10 text-gray-400 text-sm space-y-1">
-          <p>© 2026 Picture to Drawing · Powered by Replicate AI</p>
-          <p>3 free conversions per day · No account required</p>
+          <p>© 2026 Picture to Drawing · Powered by Browser Canvas AI</p>
+          <p>3 free conversions per day · No account required · Processing happens in your browser</p>
         </footer>
       </div>
     </main>
