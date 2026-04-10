@@ -16,24 +16,20 @@ export async function onRequestGet(context) {
   }
 
   if (!code) {
-    return Response.redirect('https://birdsee.com/?auth=error', 302)
-  }
-
-  // Verify CSRF state
-  const cookieHeader = request.headers.get('Cookie') || ''
-  const cookies = Object.fromEntries(
-    cookieHeader.split(';').map(c => {
-      const [k, ...v] = c.trim().split('=')
-      return [k, v.join('=')]
-    })
-  )
-  if (state && cookies.oauth_state && cookies.oauth_state !== state) {
-    return Response.redirect('https://birdsee.com/?auth=error', 302)
+    return Response.redirect('https://birdsee.com/?auth=error&reason=no_code', 302)
   }
 
   const clientId = env.GOOGLE_CLIENT_ID
   const clientSecret = env.GOOGLE_CLIENT_SECRET
   const redirectUri = env.GOOGLE_REDIRECT_URI || 'https://birdsee.com/auth/callback'
+
+  // Debug: check env vars are present (don't log secret value)
+  if (!clientId || !clientSecret) {
+    return Response.redirect(
+      `https://birdsee.com/?auth=error&reason=missing_env&has_id=${!!clientId}&has_secret=${!!clientSecret}`,
+      302
+    )
+  }
 
   // Exchange code for tokens
   let tokenData
@@ -51,35 +47,38 @@ export async function onRequestGet(context) {
     })
     tokenData = await tokenRes.json()
   } catch (e) {
-    return Response.redirect('https://birdsee.com/?auth=error', 302)
+    return Response.redirect(`https://birdsee.com/?auth=error&reason=fetch_failed`, 302)
   }
 
   if (!tokenData.id_token) {
-    return Response.redirect('https://birdsee.com/?auth=error', 302)
+    // Encode the error for debugging
+    const errMsg = encodeURIComponent(tokenData.error || 'no_id_token')
+    const errDesc = encodeURIComponent(tokenData.error_description || '')
+    return Response.redirect(
+      `https://birdsee.com/?auth=error&reason=no_token&err=${errMsg}&desc=${errDesc}`,
+      302
+    )
   }
 
-  // Decode id_token payload (JWT, no signature verification needed for basic info)
+  // Decode id_token payload (JWT)
   let userInfo
   try {
     const payload = tokenData.id_token.split('.')[1]
-    // Add padding
     const padded = payload + '='.repeat((4 - (payload.length % 4)) % 4)
     userInfo = JSON.parse(atob(padded))
   } catch (e) {
-    return Response.redirect('https://birdsee.com/?auth=error', 302)
+    return Response.redirect(`https://birdsee.com/?auth=error&reason=decode_failed`, 302)
   }
 
-  // Build a simple session payload
+  // Build session payload
   const session = {
     sub: userInfo.sub,
     email: userInfo.email,
     name: userInfo.name,
     picture: userInfo.picture,
-    exp: Math.floor(Date.now() / 1000) + 86400 * 7, // 7 days
+    exp: Math.floor(Date.now() / 1000) + 86400 * 7,
   }
 
-  // Encode session as base64 (not signed — fine for non-sensitive data like display info)
-  // For production with sensitive ops, use a JWT signed with a secret
   const sessionCookie = btoa(JSON.stringify(session))
 
   return new Response(null, {
@@ -87,9 +86,7 @@ export async function onRequestGet(context) {
     headers: {
       Location: 'https://birdsee.com/?auth=success',
       'Set-Cookie': [
-        // Clear state cookie
         `oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
-        // Set session cookie (7 days)
         `user_session=${sessionCookie}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${86400 * 7}`,
       ].join(', '),
     },
