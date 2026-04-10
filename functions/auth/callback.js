@@ -7,31 +7,29 @@ export async function onRequestGet(context) {
   const url = new URL(request.url)
 
   const code = url.searchParams.get('code')
-  const state = url.searchParams.get('state')
   const error = url.searchParams.get('error')
 
-  // Handle user denial
   if (error) {
-    return Response.redirect('https://birdsee.com/?auth=cancelled', 302)
+    return Response.json({ step: 'google_denied', error })
   }
 
   if (!code) {
-    return Response.redirect('https://birdsee.com/?auth=error&reason=no_code', 302)
+    return Response.json({ step: 'no_code' })
   }
 
   const clientId = env.GOOGLE_CLIENT_ID
   const clientSecret = env.GOOGLE_CLIENT_SECRET
   const redirectUri = env.GOOGLE_REDIRECT_URI || 'https://birdsee.com/auth/callback'
 
-  // Debug: check env vars are present (don't log secret value)
   if (!clientId || !clientSecret) {
-    return Response.redirect(
-      `https://birdsee.com/?auth=error&reason=missing_env&has_id=${!!clientId}&has_secret=${!!clientSecret}`,
-      302
-    )
+    return Response.json({
+      step: 'missing_env',
+      has_client_id: !!clientId,
+      has_client_secret: !!clientSecret,
+      redirect_uri: redirectUri,
+    })
   }
 
-  // Exchange code for tokens
   let tokenData
   try {
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -47,30 +45,26 @@ export async function onRequestGet(context) {
     })
     tokenData = await tokenRes.json()
   } catch (e) {
-    return Response.redirect(`https://birdsee.com/?auth=error&reason=fetch_failed`, 302)
+    return Response.json({ step: 'fetch_failed', message: String(e) })
   }
 
   if (!tokenData.id_token) {
-    // Encode the error for debugging
-    const errMsg = encodeURIComponent(tokenData.error || 'no_id_token')
-    const errDesc = encodeURIComponent(tokenData.error_description || '')
-    return Response.redirect(
-      `https://birdsee.com/?auth=error&reason=no_token&err=${errMsg}&desc=${errDesc}`,
-      302
-    )
+    return Response.json({
+      step: 'token_exchange_failed',
+      error: tokenData.error,
+      error_description: tokenData.error_description,
+    })
   }
 
-  // Decode id_token payload (JWT)
   let userInfo
   try {
     const payload = tokenData.id_token.split('.')[1]
     const padded = payload + '='.repeat((4 - (payload.length % 4)) % 4)
     userInfo = JSON.parse(atob(padded))
   } catch (e) {
-    return Response.redirect(`https://birdsee.com/?auth=error&reason=decode_failed`, 302)
+    return Response.json({ step: 'decode_failed', message: String(e) })
   }
 
-  // Build session payload
   const session = {
     sub: userInfo.sub,
     email: userInfo.email,
