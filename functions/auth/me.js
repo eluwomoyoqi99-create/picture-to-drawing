@@ -1,6 +1,5 @@
 /**
- * GET /auth/me
- * Return current logged-in user info from session cookie (JSON)
+ * GET /auth/me — returns current user info including Pro status
  */
 export async function onRequestGet(context) {
   const { request } = context
@@ -13,21 +12,26 @@ export async function onRequestGet(context) {
   )
 
   const sessionCookie = cookies.user_session
-  if (!sessionCookie) {
-    return Response.json({ user: null })
-  }
+  if (!sessionCookie) return Response.json({ user: null })
 
   try {
     const session = JSON.parse(atob(sessionCookie))
-    // Check expiry
     if (session.exp && session.exp < Math.floor(Date.now() / 1000)) {
       return Response.json({ user: null })
     }
+
+    // Check if Pro plan is still valid
+    const isPro = session.plan &&
+      session.plan.startsWith('pro') &&
+      session.plan_expires > Math.floor(Date.now() / 1000)
+
     return Response.json({
       user: {
         email: session.email,
         name: session.name,
         picture: session.picture,
+        plan: isPro ? session.plan : 'free',
+        isPro,
       },
     })
   } catch {

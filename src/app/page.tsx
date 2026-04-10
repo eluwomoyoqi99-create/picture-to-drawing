@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import UploadZone from '@/components/UploadZone'
 import StyleSelector from '@/components/StyleSelector'
 import ImageCompare from '@/components/ImageCompare'
@@ -36,7 +36,51 @@ function checkAndIncrementUsage(isLoggedIn: boolean): { allowed: boolean; remain
 type Status = 'idle' | 'processing' | 'done' | 'error' | 'limit'
 
 // ─── Upgrade Modal ────────────────────────────────────────────────────────────
+const PAYPAL_CLIENT_ID = 'AbRG-THm4_Pm5pAplZEHutc6Rv79jYIowdwaF8L0iTbpkzblp1lWmoLVQm7IG4LIU512PTT1dND-Qr6h'
+const PAYPAL_PLAN_MONTHLY = 'P-5H914883PY489063BNHMKSTY'
+const PAYPAL_PLAN_ANNUAL  = 'P-1K523494TJ200721JNHMKSTY'
+
 function UpgradeModal({ onClose, isLoggedIn }: { onClose: () => void; isLoggedIn: boolean }) {
+  const [billing, setBilling] = useState<'monthly' | 'annual'>('annual')
+  const [loading, setLoading] = useState(false)
+  const [paypalReady, setPaypalReady] = useState(false)
+  const paypalRef = useRef<HTMLDivElement>(null)
+
+  // Load PayPal SDK
+  useEffect(() => {
+    if (document.getElementById('paypal-sdk')) { setPaypalReady(true); return }
+    const script = document.createElement('script')
+    script.id = 'paypal-sdk'
+    script.src = `https://www.sandbox.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&vault=true&intent=subscription`
+    script.onload = () => setPaypalReady(true)
+    document.head.appendChild(script)
+  }, [])
+
+  // Render PayPal button when ready
+  useEffect(() => {
+    if (!paypalReady || !paypalRef.current || !isLoggedIn) return
+    const win = window as any
+    if (!win.paypal) return
+    paypalRef.current.innerHTML = ''
+    win.paypal.Buttons({
+      style: { shape: 'pill', color: 'gold', layout: 'horizontal', label: 'subscribe' },
+      createSubscription: (_data: any, actions: any) => {
+        return actions.subscription.create({
+          plan_id: billing === 'annual' ? PAYPAL_PLAN_ANNUAL : PAYPAL_PLAN_MONTHLY,
+        })
+      },
+      onApprove: async (data: any) => {
+        setLoading(true)
+        window.location.href = `/api/paypal/success?subscription_id=${data.subscriptionID}`
+      },
+      onError: (err: any) => {
+        console.error('PayPal error', err)
+        alert('Payment failed. Please try again.')
+        setLoading(false)
+      },
+    }).render(paypalRef.current)
+  }, [paypalReady, billing, isLoggedIn])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 relative" onClick={e => e.stopPropagation()}>
@@ -48,8 +92,17 @@ function UpgradeModal({ onClose, isLoggedIn }: { onClose: () => void; isLoggedIn
           <p className="text-gray-500 mt-1">Unlock unlimited conversions and premium features</p>
         </div>
 
-        {/* Pricing toggle */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
+        {/* Billing toggle */}
+        <div className="flex items-center justify-center gap-3 mb-5">
+          <button onClick={() => setBilling('monthly')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${billing === 'monthly' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            Monthly — $4.9
+          </button>
+          <button onClick={() => setBilling('annual')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${billing === 'annual' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            Annual — $29 <span className="text-xs opacity-80">save 51%</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-5">
           {/* Free */}
           <div className="border border-gray-200 rounded-2xl p-4">
             <div className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Free</div>
@@ -60,11 +113,10 @@ function UpgradeModal({ onClose, isLoggedIn }: { onClose: () => void; isLoggedIn
               <li>✅ PNG download</li>
               <li className="text-gray-400">❌ High-res output</li>
               <li className="text-gray-400">❌ History</li>
-              <li className="text-gray-400">❌ Ads shown</li>
             </ul>
             {!isLoggedIn && (
               <a href="/auth/login" className="mt-4 block text-center py-2 rounded-xl border border-orange-300 text-orange-600 text-sm font-medium hover:bg-orange-50 transition-colors">
-                Sign in (free)
+                Sign in free
               </a>
             )}
           </div>
@@ -73,26 +125,39 @@ function UpgradeModal({ onClose, isLoggedIn }: { onClose: () => void; isLoggedIn
           <div className="border-2 border-orange-400 rounded-2xl p-4 bg-orange-50 relative">
             <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-orange-500 text-white text-xs font-bold px-3 py-1 rounded-full">BEST VALUE</div>
             <div className="text-sm font-semibold text-orange-600 uppercase tracking-wide mb-1">Pro</div>
-            <div className="text-2xl font-bold text-gray-800 mb-0.5">$4.9<span className="text-sm font-normal text-gray-500">/mo</span></div>
-            <div className="text-xs text-orange-600 font-medium mb-3">or $29/yr — save 51%</div>
+            <div className="text-2xl font-bold text-gray-800 mb-0.5">
+              {billing === 'annual' ? '$2.4' : '$4.9'}<span className="text-sm font-normal text-gray-500">/mo</span>
+            </div>
+            <div className="text-xs text-orange-600 font-medium mb-3">
+              {billing === 'annual' ? 'Billed $29/year' : 'Billed monthly'}
+            </div>
             <ul className="space-y-1.5 text-sm text-gray-700">
               <li>✅ <strong>Unlimited</strong> conversions</li>
-              <li>✅ <strong>All styles</strong> (incl. new)</li>
+              <li>✅ <strong>All styles</strong></li>
               <li>✅ <strong>4K high-res</strong> output</li>
               <li>✅ <strong>Unlimited</strong> history</li>
-              <li>✅ SVG export</li>
               <li>✅ No ads</li>
             </ul>
-            <button
-              onClick={() => alert('Stripe payment coming soon! 🚀')}
-              className="mt-4 w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold transition-colors shadow-sm"
-            >
-              Upgrade Now →
-            </button>
           </div>
         </div>
 
-        <p className="text-center text-xs text-gray-400">Cancel anytime · Secure payment via Stripe · No hidden fees</p>
+        {/* PayPal Button */}
+        {isLoggedIn ? (
+          <div>
+            {loading && (
+              <div className="text-center py-3 text-orange-600 text-sm font-medium">Processing payment...</div>
+            )}
+            <div ref={paypalRef} className="min-h-[45px]">
+              {!paypalReady && <div className="text-center py-3 text-gray-400 text-sm">Loading payment...</div>}
+            </div>
+          </div>
+        ) : (
+          <a href="/auth/login" className="block w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold text-center transition-colors">
+            Sign in to Upgrade →
+          </a>
+        )}
+
+        <p className="text-center text-xs text-gray-400 mt-3">Cancel anytime · Secure payment via PayPal · No hidden fees</p>
       </div>
     </div>
   )
