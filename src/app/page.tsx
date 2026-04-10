@@ -26,25 +26,227 @@ function checkAndIncrementUsage(isLoggedIn: boolean): { allowed: boolean; remain
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) record = JSON.parse(raw)
   } catch {}
-
-  if (record.date !== today) {
-    record = { date: today, count: 0 }
-  }
-
-  if (record.count >= limit) {
-    return { allowed: false, remaining: 0 }
-  }
-
+  if (record.date !== today) record = { date: today, count: 0 }
+  if (record.count >= limit) return { allowed: false, remaining: 0 }
   record.count += 1
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(record))
-  } catch {}
-
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(record)) } catch {}
   return { allowed: true, remaining: limit - record.count }
 }
 
 type Status = 'idle' | 'processing' | 'done' | 'error' | 'limit'
 
+// ─── Upgrade Modal ────────────────────────────────────────────────────────────
+function UpgradeModal({ onClose, isLoggedIn }: { onClose: () => void; isLoggedIn: boolean }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 relative" onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+
+        <div className="text-center mb-6">
+          <div className="text-4xl mb-2">🚀</div>
+          <h2 className="text-2xl font-bold text-gray-800">Upgrade to Pro</h2>
+          <p className="text-gray-500 mt-1">Unlock unlimited conversions and premium features</p>
+        </div>
+
+        {/* Pricing toggle */}
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          {/* Free */}
+          <div className="border border-gray-200 rounded-2xl p-4">
+            <div className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Free</div>
+            <div className="text-2xl font-bold text-gray-800 mb-3">$0</div>
+            <ul className="space-y-1.5 text-sm text-gray-600">
+              <li>✅ {isLoggedIn ? '10' : '3'} conversions/day</li>
+              <li>✅ 3 drawing styles</li>
+              <li>✅ PNG download</li>
+              <li className="text-gray-400">❌ High-res output</li>
+              <li className="text-gray-400">❌ History</li>
+              <li className="text-gray-400">❌ Ads shown</li>
+            </ul>
+            {!isLoggedIn && (
+              <a href="/auth/login" className="mt-4 block text-center py-2 rounded-xl border border-orange-300 text-orange-600 text-sm font-medium hover:bg-orange-50 transition-colors">
+                Sign in (free)
+              </a>
+            )}
+          </div>
+
+          {/* Pro */}
+          <div className="border-2 border-orange-400 rounded-2xl p-4 bg-orange-50 relative">
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-orange-500 text-white text-xs font-bold px-3 py-1 rounded-full">BEST VALUE</div>
+            <div className="text-sm font-semibold text-orange-600 uppercase tracking-wide mb-1">Pro</div>
+            <div className="text-2xl font-bold text-gray-800 mb-0.5">$4.9<span className="text-sm font-normal text-gray-500">/mo</span></div>
+            <div className="text-xs text-orange-600 font-medium mb-3">or $29/yr — save 51%</div>
+            <ul className="space-y-1.5 text-sm text-gray-700">
+              <li>✅ <strong>Unlimited</strong> conversions</li>
+              <li>✅ <strong>All styles</strong> (incl. new)</li>
+              <li>✅ <strong>4K high-res</strong> output</li>
+              <li>✅ <strong>Unlimited</strong> history</li>
+              <li>✅ SVG export</li>
+              <li>✅ No ads</li>
+            </ul>
+            <button
+              onClick={() => alert('Stripe payment coming soon! 🚀')}
+              className="mt-4 w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold transition-colors shadow-sm"
+            >
+              Upgrade Now →
+            </button>
+          </div>
+        </div>
+
+        <p className="text-center text-xs text-gray-400">Cancel anytime · Secure payment via Stripe · No hidden fees</p>
+      </div>
+    </div>
+  )
+}
+
+// ─── Pricing Section ──────────────────────────────────────────────────────────
+function PricingSection({ onUpgrade }: { onUpgrade: () => void }) {
+  const [annual, setAnnual] = useState(true)
+
+  return (
+    <section className="mt-16" id="pricing">
+      <div className="text-center mb-8">
+        <h2 className="text-3xl font-bold text-gray-800 mb-2">Simple, Transparent Pricing</h2>
+        <p className="text-gray-500">Start free. Upgrade when you need more.</p>
+
+        {/* Billing toggle */}
+        <div className="flex items-center justify-center gap-3 mt-4">
+          <span className={`text-sm font-medium ${!annual ? 'text-gray-800' : 'text-gray-400'}`}>Monthly</span>
+          <button
+            onClick={() => setAnnual(!annual)}
+            className={`relative w-12 h-6 rounded-full transition-colors ${annual ? 'bg-orange-500' : 'bg-gray-300'}`}
+          >
+            <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${annual ? 'translate-x-7' : 'translate-x-1'}`} />
+          </button>
+          <span className={`text-sm font-medium ${annual ? 'text-gray-800' : 'text-gray-400'}`}>
+            Annual <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded-full ml-1">Save 51%</span>
+          </span>
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+        {/* Guest */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-6">
+          <div className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Guest</div>
+          <div className="text-3xl font-bold text-gray-800 mb-1">$0</div>
+          <p className="text-sm text-gray-500 mb-5">No account needed</p>
+          <ul className="space-y-2 text-sm text-gray-600 mb-6">
+            <li className="flex gap-2"><span className="text-green-500">✓</span> 3 conversions/day</li>
+            <li className="flex gap-2"><span className="text-green-500">✓</span> 3 drawing styles</li>
+            <li className="flex gap-2"><span className="text-green-500">✓</span> PNG download</li>
+            <li className="flex gap-2"><span className="text-gray-300">✗</span> <span className="text-gray-400">High-res output</span></li>
+            <li className="flex gap-2"><span className="text-gray-300">✗</span> <span className="text-gray-400">History</span></li>
+          </ul>
+          <div className="w-full py-2.5 rounded-xl bg-gray-100 text-gray-500 text-sm font-medium text-center">Current Plan</div>
+        </div>
+
+        {/* Free Account */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-6">
+          <div className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Free Account</div>
+          <div className="text-3xl font-bold text-gray-800 mb-1">$0</div>
+          <p className="text-sm text-gray-500 mb-5">Sign in with Google</p>
+          <ul className="space-y-2 text-sm text-gray-600 mb-6">
+            <li className="flex gap-2"><span className="text-green-500">✓</span> <strong>10</strong> conversions/day</li>
+            <li className="flex gap-2"><span className="text-green-500">✓</span> 3 drawing styles</li>
+            <li className="flex gap-2"><span className="text-green-500">✓</span> PNG download</li>
+            <li className="flex gap-2"><span className="text-green-500">✓</span> Last 10 history</li>
+            <li className="flex gap-2"><span className="text-gray-300">✗</span> <span className="text-gray-400">High-res output</span></li>
+          </ul>
+          <a href="/auth/login" className="block w-full py-2.5 rounded-xl border-2 border-orange-400 text-orange-600 text-sm font-bold text-center hover:bg-orange-50 transition-colors">
+            Sign in Free →
+          </a>
+        </div>
+
+        {/* Pro */}
+        <div className="bg-gradient-to-b from-orange-500 to-orange-600 rounded-2xl p-6 text-white relative shadow-xl shadow-orange-200">
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-orange-600 text-xs font-bold px-3 py-1 rounded-full shadow">
+            ⭐ MOST POPULAR
+          </div>
+          <div className="text-sm font-semibold text-orange-200 uppercase tracking-wide mb-1">Pro</div>
+          <div className="text-3xl font-bold mb-0.5">
+            {annual ? '$2.4' : '$4.9'}<span className="text-lg font-normal text-orange-200">/mo</span>
+          </div>
+          <p className="text-sm text-orange-200 mb-5">
+            {annual ? 'Billed $29/year' : 'Billed monthly'}
+          </p>
+          <ul className="space-y-2 text-sm mb-6">
+            <li className="flex gap-2"><span>✓</span> <strong>Unlimited</strong> conversions</li>
+            <li className="flex gap-2"><span>✓</span> All styles + new releases</li>
+            <li className="flex gap-2"><span>✓</span> <strong>4K high-res</strong> output</li>
+            <li className="flex gap-2"><span>✓</span> <strong>Unlimited</strong> history</li>
+            <li className="flex gap-2"><span>✓</span> SVG export</li>
+            <li className="flex gap-2"><span>✓</span> No ads</li>
+          </ul>
+          <button
+            onClick={onUpgrade}
+            className="w-full py-2.5 rounded-xl bg-white text-orange-600 text-sm font-bold hover:bg-orange-50 transition-colors shadow"
+          >
+            Get Pro {annual ? '— $29/yr' : '— $4.9/mo'} →
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ─── FAQ Section ──────────────────────────────────────────────────────────────
+const faqs = [
+  {
+    q: 'Is my photo uploaded to any server?',
+    a: 'No. All processing happens 100% in your browser. Your photos never leave your device and are never uploaded to any server. Your privacy is fully protected.',
+  },
+  {
+    q: 'What are the limits for free users?',
+    a: 'Visitors without an account can convert 3 photos per day. Signing up with Google (free) increases this to 10 per day. Pro members get unlimited conversions.',
+  },
+  {
+    q: 'What payment methods are accepted?',
+    a: 'We accept Visa, Mastercard, and PayPal. All payments are securely processed by Stripe. We never store your card details.',
+  },
+  {
+    q: 'Can I cancel my Pro subscription anytime?',
+    a: 'Yes, absolutely. Cancel anytime with no cancellation fee. You\'ll continue to have Pro access until the end of your current billing period.',
+  },
+  {
+    q: 'What image formats are supported?',
+    a: 'You can upload JPG and PNG images up to 10MB. Free users can download in PNG. Pro users can also export in SVG format and download in 4K high resolution.',
+  },
+  {
+    q: 'What drawing styles are available?',
+    a: 'Currently we offer Pencil Sketch, Ink Wash, and Line Art. Pro members get access to all future styles as they are released.',
+  },
+]
+
+function FAQSection() {
+  const [open, setOpen] = useState<number | null>(null)
+  return (
+    <section className="mt-16 max-w-2xl mx-auto" id="faq">
+      <div className="text-center mb-8">
+        <h2 className="text-3xl font-bold text-gray-800 mb-2">Frequently Asked Questions</h2>
+        <p className="text-gray-500">Everything you need to know</p>
+      </div>
+      <div className="space-y-3">
+        {faqs.map((faq, i) => (
+          <div key={i} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <button
+              className="w-full text-left px-6 py-4 flex items-center justify-between gap-4 hover:bg-gray-50 transition-colors"
+              onClick={() => setOpen(open === i ? null : i)}
+            >
+              <span className="font-medium text-gray-800">{faq.q}</span>
+              <span className={`text-orange-500 text-xl transition-transform flex-shrink-0 ${open === i ? 'rotate-45' : ''}`}>+</span>
+            </button>
+            {open === i && (
+              <div className="px-6 pb-4 text-gray-500 text-sm leading-relaxed border-t border-gray-100 pt-3">
+                {faq.a}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Home() {
   const [status, setStatus] = useState<Status>('idle')
   const [selectedStyle, setSelectedStyle] = useState(STYLES[0].id)
@@ -54,27 +256,19 @@ export default function Home() {
   const [remainingUses, setRemainingUses] = useState<number | null>(null)
   const [user, setUser] = useState<UserInfo | null>(null)
   const [userLoading, setUserLoading] = useState(true)
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
 
-  // Fetch current login state on mount
   useEffect(() => {
     fetch('/auth/me')
       .then(r => r.json())
-      .then(data => {
-        setUser(data.user || null)
-      })
+      .then(data => setUser(data.user || null))
       .catch(() => setUser(null))
       .finally(() => setUserLoading(false))
   }, [])
 
-  // Handle ?auth=success / ?auth=cancelled in URL after OAuth redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const authResult = params.get('auth')
-    if (authResult) {
-      // Clean up URL
-      const clean = window.location.pathname
-      window.history.replaceState({}, '', clean)
-    }
+    if (params.get('auth')) window.history.replaceState({}, '', window.location.pathname)
   }, [])
 
   const handleFileSelect = useCallback((dataUrl: string) => {
@@ -89,14 +283,9 @@ export default function Home() {
     setStatus('processing')
     setResultImage(null)
     setErrorMsg('')
-
     try {
       const { allowed, remaining } = checkAndIncrementUsage(!!user)
-      if (!allowed) {
-        setStatus('limit')
-        return
-      }
-
+      if (!allowed) { setStatus('limit'); return }
       const output = await processImage(originalImage, selectedStyle as StyleId)
       setResultImage(output)
       setRemainingUses(remaining)
@@ -130,9 +319,11 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50">
+      {showUpgradeModal && <UpgradeModal onClose={() => setShowUpgradeModal(false)} isLoggedIn={!!user} />}
+
       <div className="max-w-4xl mx-auto px-4 py-10">
+        {/* Header */}
         <header className="text-center mb-12">
-          {/* Top-right login/user area */}
           <div className="flex justify-end mb-4">
             {userLoading ? (
               <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse" />
@@ -142,12 +333,13 @@ export default function Home() {
                   <img src={user.picture} alt={user.name} className="w-8 h-8 rounded-full border border-orange-200" referrerPolicy="no-referrer" />
                 )}
                 <span className="text-sm text-gray-600 font-medium hidden sm:inline">{user.name}</span>
-                <a
-                  href="/auth/logout"
-                  className="text-xs text-gray-400 hover:text-gray-600 underline ml-1"
+                <button
+                  onClick={() => setShowUpgradeModal(true)}
+                  className="text-xs bg-orange-500 hover:bg-orange-600 text-white font-bold px-3 py-1 rounded-full ml-1 transition-colors"
                 >
-                  Sign out
-                </a>
+                  Pro ✨
+                </button>
+                <a href="/auth/logout" className="text-xs text-gray-400 hover:text-gray-600 underline ml-1">Sign out</a>
               </div>
             ) : (
               <a
@@ -165,12 +357,8 @@ export default function Home() {
             )}
           </div>
 
-          <h1 className="text-5xl font-bold text-gray-800 mb-3 tracking-tight">
-            🎨 Picture to Drawing
-          </h1>
-          <p className="text-gray-500 text-xl">
-            Upload your photo · Choose a style · Get hand-drawn art
-          </p>
+          <h1 className="text-5xl font-bold text-gray-800 mb-3 tracking-tight">🎨 Picture to Drawing</h1>
+          <p className="text-gray-500 text-xl">Upload your photo · Choose a style · Get hand-drawn art</p>
           {remainingUses !== null && (
             <div className="mt-3 inline-block bg-orange-100 text-orange-600 text-sm font-medium px-4 py-1.5 rounded-full">
               🎁 {remainingUses} free conversion{remainingUses !== 1 ? 's' : ''} remaining today
@@ -178,11 +366,13 @@ export default function Home() {
           )}
           {!user && !userLoading && (
             <p className="mt-2 text-sm text-gray-400">
-              <a href="/auth/login" className="text-orange-500 hover:underline">Sign in</a> to get 10 conversions/day instead of 3
+              <a href="/auth/login" className="text-orange-500 hover:underline">Sign in free</a> for 10/day ·{' '}
+              <button onClick={() => setShowUpgradeModal(true)} className="text-orange-500 hover:underline">Go Pro</button> for unlimited
             </p>
           )}
         </header>
 
+        {/* Converter Card */}
         <div className="bg-white rounded-3xl shadow-xl shadow-orange-100/50 p-8 space-y-8">
           <section>
             <div className="flex items-center gap-2 mb-4">
@@ -230,17 +420,31 @@ export default function Home() {
               )}
 
               {status === 'limit' && (
-                <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl mb-4">
-                  <span className="text-2xl">🚫</span>
-                  <div>
-                    <p className="font-medium text-amber-800">Daily free limit reached</p>
-                    <p className="text-sm text-amber-700 mt-0.5">
-                      {user
-                        ? `You've used all ${DAILY_LIMIT_USER} conversions today. Come back tomorrow!`
-                        : <>You&apos;ve used all {DAILY_LIMIT_GUEST} free conversions today.{' '}
-                          <a href="/auth/login" className="text-orange-600 underline font-medium">Sign in</a> for 10/day, or come back tomorrow!</>
-                      }
-                    </p>
+                <div className="p-5 bg-amber-50 border border-amber-200 rounded-2xl mb-4">
+                  <div className="flex items-start gap-3 mb-4">
+                    <span className="text-2xl">🚫</span>
+                    <div>
+                      <p className="font-medium text-amber-800">Daily limit reached</p>
+                      <p className="text-sm text-amber-700 mt-0.5">
+                        {user
+                          ? `You've used all ${DAILY_LIMIT_USER} free conversions today.`
+                          : `You've used all ${DAILY_LIMIT_GUEST} guest conversions today.`
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => setShowUpgradeModal(true)}
+                      className="flex-1 min-w-[140px] py-2.5 px-4 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold rounded-xl transition-colors"
+                    >
+                      ✨ Upgrade to Pro — Unlimited
+                    </button>
+                    {!user && (
+                      <a href="/auth/login" className="flex-1 min-w-[140px] py-2.5 px-4 border-2 border-orange-400 text-orange-600 text-sm font-bold rounded-xl text-center hover:bg-orange-50 transition-colors">
+                        Sign in Free (10/day)
+                      </a>
+                    )}
                   </div>
                 </div>
               )}
@@ -254,19 +458,16 @@ export default function Home() {
                 )}
                 {status === 'done' && (
                   <>
-                    <button onClick={handleDownload}
-                      className="flex-1 min-w-[160px] bg-green-500 hover:bg-green-600 text-white font-semibold py-3.5 px-6 rounded-xl transition-all duration-200">
+                    <button onClick={handleDownload} className="flex-1 min-w-[160px] bg-green-500 hover:bg-green-600 text-white font-semibold py-3.5 px-6 rounded-xl transition-all duration-200">
                       ⬇️ Download Drawing
                     </button>
-                    <button onClick={handleConvert}
-                      className="flex-1 min-w-[160px] bg-orange-100 hover:bg-orange-200 text-orange-700 font-semibold py-3.5 px-6 rounded-xl transition-all duration-200">
+                    <button onClick={handleConvert} className="flex-1 min-w-[160px] bg-orange-100 hover:bg-orange-200 text-orange-700 font-semibold py-3.5 px-6 rounded-xl transition-all duration-200">
                       🔄 Try Another Style
                     </button>
                   </>
                 )}
                 {originalImage && status !== 'processing' && (
-                  <button onClick={handleReset}
-                    className="px-6 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-medium rounded-xl transition-all duration-200">
+                  <button onClick={handleReset} className="px-6 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-medium rounded-xl transition-all duration-200">
                     📷 New Photo
                   </button>
                 )}
@@ -281,12 +482,23 @@ export default function Home() {
           )}
         </div>
 
-        <footer className="text-center mt-10 text-gray-400 text-sm space-y-1">
+        {/* Pricing */}
+        <PricingSection onUpgrade={() => setShowUpgradeModal(true)} />
+
+        {/* FAQ */}
+        <FAQSection />
+
+        {/* Footer */}
+        <footer className="text-center mt-16 text-gray-400 text-sm space-y-1 pb-8">
           <p>© 2026 Picture to Drawing · Powered by Browser Canvas</p>
           <p>
+            <button onClick={() => setShowUpgradeModal(true)} className="hover:text-orange-500 hover:underline">Pricing</button>
+            {' · '}
+            <a href="#faq" className="hover:text-orange-500 hover:underline">FAQ</a>
+            {' · '}
             {user
-              ? `Signed in as ${user.email} · 10 conversions/day · 100% in-browser processing`
-              : '3 free conversions/day · Sign in for 10/day · 100% in-browser processing'
+              ? <a href="/auth/logout" className="hover:text-orange-500 hover:underline">Sign out</a>
+              : <a href="/auth/login" className="hover:text-orange-500 hover:underline">Sign in</a>
             }
           </p>
         </footer>
