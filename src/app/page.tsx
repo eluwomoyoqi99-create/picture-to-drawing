@@ -36,9 +36,9 @@ function checkAndIncrementUsage(isLoggedIn: boolean): { allowed: boolean; remain
 type Status = 'idle' | 'processing' | 'done' | 'error' | 'limit'
 
 // ─── Upgrade Modal ────────────────────────────────────────────────────────────
-const PAYPAL_CLIENT_ID = 'AbRG-THm4_Pm5pAplZEHutc6Rv79jYIowdwaF8L0iTbpkzblp1lWmoLVQm7IG4LIU512PTT1dND-Qr6h'
-const PAYPAL_PLAN_MONTHLY = 'P-5H914883PY489063BNHMKSTY'
-const PAYPAL_PLAN_ANNUAL  = 'P-1K523494TJ200721JNHMKSTY'
+const PAYPAL_CLIENT_ID = 'AeQ8VlMJ9-3OJ_nuyLJUbrh3VwnKp2H-7iQXai68Cm8Lvw-YbjM9YtDSriaAqYU_ohZO0Ow2TRjuPDsC'
+const PAYPAL_PLAN_MONTHLY = 'P-05V25261CM070703ENHMLVJI'
+const PAYPAL_PLAN_ANNUAL  = 'P-4B427277CJ552272UNHMLVMA'
 
 function UpgradeModal({ onClose, isLoggedIn }: { onClose: () => void; isLoggedIn: boolean }) {
   const [billing, setBilling] = useState<'monthly' | 'annual'>('annual')
@@ -51,7 +51,7 @@ function UpgradeModal({ onClose, isLoggedIn }: { onClose: () => void; isLoggedIn
     if (document.getElementById('paypal-sdk')) { setPaypalReady(true); return }
     const script = document.createElement('script')
     script.id = 'paypal-sdk'
-    script.src = `https://www.sandbox.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&vault=true&intent=subscription`
+    script.src = `https://www.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&vault=true&intent=subscription`
     script.onload = () => setPaypalReady(true)
     document.head.appendChild(script)
   }, [])
