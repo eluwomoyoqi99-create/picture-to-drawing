@@ -4,7 +4,7 @@
 
 # Next.js
 .next/
-out/
+# out/ is committed for Cloudflare Pages deployment (no build step needed)
 build/
 
 # Node.js
